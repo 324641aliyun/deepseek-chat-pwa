@@ -23,6 +23,16 @@
   margin-bottom: 8px;
 }
 
+/* 语音输入标记：靠近气泡右上方，小号、低对比 */
+.voiceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 6px 4px 0;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .filesWithDocuments {
   --message-file-image-size: 64px;
 }

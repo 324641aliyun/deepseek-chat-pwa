@@ -440,6 +440,22 @@ const ClientToolRow = ({ step, isLast }: { step: ClientToolStep; isLast: boolean
                 <pre className={styles.toolResult}>{result}</pre>
               </>
             ) : null}
+            {step.previews?.length ? (
+              <>
+                <div className={styles.toolSectionLabel}>{t('toolFramesLabel')}</div>
+                <div className={styles.toolFrames}>
+                  {step.previews.map((preview, index) => (
+                    <img
+                      key={`${step.key}-frame-${index}`}
+                      className={styles.toolFrame}
+                      src={preview}
+                      alt={`${index + 1}`}
+                      loading="lazy"
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

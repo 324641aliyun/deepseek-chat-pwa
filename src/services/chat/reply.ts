@@ -214,12 +214,29 @@ export const getToolResults = (reply: AssistantMessage): ToolResultBlockParam[] 
           {
             type: 'tool_result' as const,
             tool_use_id: block.id,
-            content: block.result ?? '',
+            content: toolResultContent(block),
             ...(block.isError ? { is_error: true } : {}),
           },
         ]
       : []
   )
+
+/** 工具结果的内容：带图片时用「图片块 + 文字块」，否则纯文本 */
+const toolResultContent = (
+  block: ClientToolPart
+): ToolResultBlockParam['content'] => {
+  const fileIds = block.resultFileIds ?? []
+  if (fileIds.length === 0) {
+    return block.result ?? ''
+  }
+  return [
+    ...fileIds.map((fileId) => ({
+      type: 'image' as const,
+      source: { type: 'file' as const, file_id: fileId },
+    })),
+    ...(block.result ? [{ type: 'text' as const, text: block.result }] : []),
+  ]
+}
 
 /** 本轮需要执行的客户端工具调用 */
 export const getPendingToolCalls = (blocks: ReplyBlock[]): ClientToolPart[] =>
@@ -275,7 +292,7 @@ export const expandReplyMessages = (reply: AssistantMessage): MessageParam[] => 
       content: calls.map((call) => ({
         type: 'tool_result' as const,
         tool_use_id: call.id,
-        content: call.result ?? '',
+        content: toolResultContent(call),
         ...(call.isError ? { is_error: true } : {}),
       })),
     })
@@ -339,14 +356,18 @@ const isUsableReply = (message: Message): message is AssistantMessage =>
   !message.blocks.some((block) => block.type === 'text' && block.isTemplate) &&
   getReplyText(message) !== ''
 
+/** 语音输入标注：只进入请求，不改用户看到的消息内容 */
+const VOICE_MARKER = '（这条消息是语音输入转写的，可能有同音字或断句错误；按上下文判断用户真正想说的意思，不确定时先简短确认。）'
+
 /** 有文件时用内容块数组：先文件后文本，文件按 Files API 的 file_id 引用 */
-const toUserParam = ({ content, files }: UserMessage): Extract<MessageParam, { role: 'user' }> => {
+const toUserParam = ({ content, files, voice }: UserMessage): Extract<MessageParam, { role: 'user' }> => {
   const blocks = toFileBlocks(files)
+  const text = voice ? `${VOICE_MARKER}\n${content}` : content
   return blocks.length === 0
-    ? { role: 'user', content }
+    ? { role: 'user', content: text }
     : {
         role: 'user',
-        content: [...blocks, ...(content ? [{ type: 'text' as const, text: content }] : [])],
+        content: [...blocks, ...(text ? [{ type: 'text' as const, text }] : [])],
       }
 }
 

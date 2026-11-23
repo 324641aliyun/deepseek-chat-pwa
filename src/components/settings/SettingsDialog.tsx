@@ -16,6 +16,7 @@ import {
   importHistory,
 } from '../../services/chat/backup.js'
 import { useIsMobile } from '../../app/viewport.js'
+import { isNativeApp } from '../../services/agent/native.js'
 import { useChatStore } from '../../services/chat/store.js'
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
 import {
@@ -427,7 +428,7 @@ const AutoCompactSetting = () => {
   )
 }
 
-/** 本地工具服务地址：可选，留空即只用手机端能力；失焦或回车保存 */
+/** 本地工具服务地址：可选，留空即只用手机端能力；失焦或回车保存。App 内用原生网络，不需要它 */
 const HelperUrlSetting = () => {
   const t = useTranslate()
   const helperUrl = useSettings((state) => state.helperUrl)
@@ -435,6 +436,9 @@ const HelperUrlSetting = () => {
   useEffect(() => {
     setValue(helperUrl ?? '')
   }, [helperUrl])
+  if (isNativeApp()) {
+    return null
+  }
   const commit = () => {
     const next = value.trim()
     if (next !== (helperUrl ?? '')) {

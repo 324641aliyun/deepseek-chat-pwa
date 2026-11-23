@@ -14,6 +14,7 @@ import {
   addDraftFiles,
   EMPTY_DRAFT,
   getDraft,
+  markDraftVoice,
   prepareDraftMessage,
   removeDraftAttachment,
   retryDraftAttachment,
@@ -101,13 +102,14 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   )
   const dragging = useFileDrop(acceptFiles)
 
-  /** 转写结果插入到光标处，并把光标移到插入内容之后 */
+  /** 转写结果插入到光标处，并把光标移到插入内容之后；同时标记这一轮是语音输入 */
   const voice = useVoiceInput((transcript) => {
     const textarea = textareaRef.current
     const current = getDraft(sessionId).text
     const start = textarea?.selectionStart ?? current.length
     const end = textarea?.selectionEnd ?? current.length
     setText(current.slice(0, start) + transcript + current.slice(end))
+    markDraftVoice(sessionId)
     requestAnimationFrame(() => {
       textarea?.focus({ preventScroll: true })
       textarea?.setSelectionRange(start + transcript.length, start + transcript.length)

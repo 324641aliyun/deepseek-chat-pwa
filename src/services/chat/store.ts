@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { showToast } from '../../components/base/toastState.js'
-import { ApiError, streamMessage } from '../api/client.js'
+import { ApiError, streamMessage, uploadFile } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest, ToolResultBlockParam } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import {
@@ -21,6 +21,7 @@ import {
 } from '../agent/compaction.js'
 import { buildSystemPrompt } from '../agent/persona.js'
 import { normalizeHelperUrl } from '../agent/helper.js'
+import { isNativeApp } from '../agent/native.js'
 import { buildAgentTools, runTool, toToolDefinitions } from '../agent/tools.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
@@ -572,7 +573,7 @@ export const sendMessage = (targetSessionId: string | null) => {
   if (!prepared) {
     return false
   }
-  const { text, files } = prepared
+  const { text, files, voice } = prepared
   // 斜杠命令：/compact 只压缩上下文，不产生新消息
   if (text.trim() === '/compact') {
     clearSentDraft(targetSessionId)
@@ -623,6 +624,7 @@ export const sendMessage = (targetSessionId: string | null) => {
       isImage,
       mimeType,
     })),
+    voice,
     createdAt: now,
   }
   const reply = createReply()
@@ -689,6 +691,8 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     role: 'user',
     content: text,
     files: previous.files,
+    // 编辑一条语音输入的消息，仍然是语音来源
+    voice: previous.voice,
     createdAt: Date.now(),
   }
   const reply = createReply()
@@ -1149,7 +1153,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const apiKey = settings.apiKey ?? ''
         const model = initial.model ?? MODEL
         const helperUrl = normalizeHelperUrl(settings.helperUrl)
-        const tools = settings.agentTools ? buildAgentTools({ helperUrl }) : []
+        const native = isNativeApp()
+        const tools = settings.agentTools ? buildAgentTools({ helperUrl, native }) : []
         // 客户端工具只允许在思考模式下使用，开了工具就强制打开，否则接口直接 400。
         const thinkingEnabled = tools.length > 0 || initial.thinking === true
         if (reply.thinking !== thinkingEnabled) {
@@ -1198,6 +1203,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             : [...prepared.history, prepared.question],
           files: collectUploadedFiles(session ? getVisibleMessages(session) : prepared.history),
           helperUrl,
+          native,
           signal: controller.signal,
         }
 
@@ -1262,17 +1268,52 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             reply = patchToolPart(reply, call.id, { status: 'running', startedAt: Date.now() })
             flush()
             const outcome = await runTool(tools, call.name, call.input, toolContext)
+            // 工具返回了图片（B 站帧）：先传 Files API 拿 file_id，再作为图片块放进 tool_result
+            let fileIds: string[] = []
+            if (outcome.images?.length) {
+              try {
+                const uploaded = await Promise.all(
+                  outcome.images.map((blob, index) =>
+                    uploadFile(
+                      apiKey,
+                      new File([blob], `frame-${call.id}-${index}.jpg`, { type: 'image/jpeg' }),
+                      null,
+                      controller.signal
+                    )
+                  )
+                )
+                fileIds = uploaded.map((file) => file.id)
+              } catch (error) {
+                if (controller.signal.aborted) {
+                  throw error
+                }
+                // 上传失败不影响文字结果，模型仍能读到帧号与时间点
+                fileIds = []
+              }
+            }
             reply = patchToolPart(reply, call.id, {
               status: outcome.isError ? 'error' : 'done',
               result: outcome.text,
+              ...(fileIds.length > 0 ? { resultFileIds: fileIds } : {}),
+              ...(outcome.previews?.length ? { previews: outcome.previews } : {}),
               isError: outcome.isError,
               endedAt: Date.now(),
             })
             flush()
+            const content: ToolResultBlockParam['content'] =
+              fileIds.length === 0
+                ? outcome.text
+                : [
+                    ...fileIds.map((fileId) => ({
+                      type: 'image' as const,
+                      source: { type: 'file' as const, file_id: fileId },
+                    })),
+                    { type: 'text' as const, text: outcome.text },
+                  ]
             results.push({
               type: 'tool_result',
               tool_use_id: call.id,
-              content: outcome.text,
+              content,
               ...(outcome.isError ? { is_error: true } : {}),
             })
           }

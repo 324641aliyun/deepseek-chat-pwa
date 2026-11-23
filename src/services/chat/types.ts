@@ -39,6 +39,8 @@ export type UserMessage = MessageBranch & {
   role: 'user'
   content: string
   files: FileAttachment[]
+  /** 文本来自语音转写：发给模型时标注，便于它按上下文纠正识别错误 */
+  voice?: boolean
   createdAt: number
 }
 
@@ -82,6 +84,10 @@ export type ClientToolPart = {
   status: 'running' | 'done' | 'error' | 'stopped'
   /** 工具返回的文本结果，已按上限截断 */
   result?: string
+  /** 结果里附带的图片（Files API 的 file_id），回放历史时按原 id 重新附上 */
+  resultFileIds?: string[]
+  /** 图片的缩略图 data URL，只用于界面展示 */
+  previews?: string[]
   isError?: boolean
   startedAt?: number
   endedAt?: number

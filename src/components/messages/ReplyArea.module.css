@@ -363,3 +363,20 @@
 .toolResult {
   max-height: 320px;
 }
+
+/* 工具返回的画面缩略图（B 站取样）：小网格，点开大图 */
+.toolFrames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.toolFrame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--dsw-alias-markdown-tag);
+}

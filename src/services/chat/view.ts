@@ -75,6 +75,8 @@ export type ClientToolStep = {
   input: Record<string, unknown>
   status: ToolStatus
   result?: string
+  /** 结果里附带的画面缩略图 */
+  previews?: string[]
   isError?: boolean
 }
 
@@ -281,6 +283,7 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
           input: block.input,
           status: block.status === 'running' ? 'wip' : block.status === 'done' ? 'done' : 'failed',
           result: block.result,
+          previews: block.previews,
           isError: block.isError,
         })
       }

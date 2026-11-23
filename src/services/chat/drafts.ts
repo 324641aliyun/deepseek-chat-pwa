@@ -18,7 +18,12 @@ export type DraftAttachment = {
   isImage: boolean
 }
 
-type Draft = { text: string; attachments: DraftAttachment[] }
+type Draft = {
+  text: string
+  attachments: DraftAttachment[]
+  /** 本轮文本里包含语音转写：发给模型时会标注，便于它纠正识别错误 */
+  voice?: boolean
+}
 
 export const EMPTY_DRAFT: Draft = { text: '', attachments: [] }
 
@@ -44,6 +49,10 @@ const updateDraft = (sessionId: string | null, update: (draft: Draft) => Draft) 
 
 export const setDraftText = (sessionId: string | null, text: string) =>
   updateDraft(sessionId, (draft) => ({ ...draft, text }))
+
+/** 语音转写填入草稿：这一轮就记成「语音输入」，之后手工修改也保留标记 */
+export const markDraftVoice = (sessionId: string | null) =>
+  updateDraft(sessionId, (draft) => ({ ...draft, voice: true }))
 
 const upload = (attachment: DraftAttachment, apiKey: string) => {
   // 上传任务负责记录错误，输入框的附件卡片展示失败及重试入口。
@@ -114,7 +123,7 @@ export const prepareDraftMessage = (draft: Draft, tasks: Record<string, UploadTa
       blob: attachment.file,
     })
   }
-  return { text, files }
+  return { text, files, voice: draft.voice === true }
 }
 
 export const removeDraftAttachment = (sessionId: string | null, attachmentId: string) => {

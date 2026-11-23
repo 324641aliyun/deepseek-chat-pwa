@@ -128,31 +128,40 @@ const readApiKey = async () => {
   return yaml.match(/^\s*DEEPSEEK_API_KEY:\s*(sk-[A-Za-z0-9]+)/m)?.[1]
 }
 
-const server = process.env.E2E_URL ? null : await serve()
+const server = process.env.E2E_URL || process.env.E2E_CDP_URL ? null : await serve()
 const targetUrl = process.env.E2E_URL ?? `http://127.0.0.1:${PORT}/`
-const profileDir = await mkdtemp(join(tmpdir(), 'dsh-e2e-chrome-'))
-const chrome = spawn(
-  chromePath,
-  [
-    '--headless=new',
-    '--remote-debugging-port=9222',
-    `--user-data-dir=${profileDir}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-gpu',
-    '--window-size=430,900',
-    targetUrl,
-  ],
-  { stdio: 'ignore', detached: false }
-)
+/** 直接连已运行的 CDP（例如 Simulator 里 WebView 的调试端口），不再自己起 Chrome */
+const remoteCdp = process.env.E2E_CDP_URL ?? null
+const profileDir = remoteCdp ? null : await mkdtemp(join(tmpdir(), 'dsh-e2e-chrome-'))
+const chrome = remoteCdp
+  ? null
+  : spawn(
+      chromePath,
+      [
+        '--headless=new',
+        '--remote-debugging-port=9222',
+        `--user-data-dir=${profileDir}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-gpu',
+        '--window-size=430,900',
+        targetUrl,
+      ],
+      { stdio: 'ignore', detached: false }
+    )
 
 let cdp
 try {
   let target
+  const listUrl = `${remoteCdp ?? 'http://127.0.0.1:9222'}/json/list`
   for (let attempt = 0; attempt < 40; attempt++) {
     try {
-      const list = await (await fetch('http://127.0.0.1:9222/json/list')).json()
-      target = list.find((item) => item.type === 'page' && item.webSocketDebuggerUrl)
+      const list = await (await fetch(listUrl)).json()
+      target = list.find(
+        (item) =>
+          item.webSocketDebuggerUrl &&
+          (item.type === 'page' || String(item.url ?? '').includes('localhost'))
+      )
       if (target) break
     } catch {
       // 端口还没就绪
@@ -160,7 +169,7 @@ try {
     await wait(250)
   }
   if (!target) {
-    throw new Error('Chrome DevTools 端口未就绪')
+    throw new Error('没有可连的调试目标')
   }
 
   cdp = new Cdp(new WebSocket(target.webSocketDebuggerUrl))
@@ -168,8 +177,10 @@ try {
   await cdp.send('Runtime.enable')
   await cdp.send('Log.enable')
   await cdp.send('Page.enable')
-  await cdp.send('Page.navigate', { url: targetUrl })
-  await wait(3000)
+  if (!remoteCdp) {
+    await cdp.send('Page.navigate', { url: targetUrl })
+    await wait(3000)
+  }
 
   const apiKey = await readApiKey()
   if (!apiKey) {
@@ -253,9 +264,11 @@ try {
 } finally {
   cdp?.close()
   server?.close()
-  if (!process.argv.includes('--keep')) {
-    chrome.kill()
+  if (!remoteCdp && !process.argv.includes('--keep')) {
+    chrome?.kill()
     await wait(500)
-    await rm(profileDir, { recursive: true, force: true }).catch(() => {})
+    if (profileDir) {
+      await rm(profileDir, { recursive: true, force: true }).catch(() => {})
+    }
   }
 }

@@ -1,33 +1,48 @@
 # DeepSeek 对话（手机版）
 
-基于 DeepSeek 官方开源聊天客户端 [`deepseek-ai/chat-demo`](https://github.com/deepseek-ai/chat-demo)（MIT）修改而来：保留官方界面与联网搜索、深度思考、附件、语音、Markdown/KaTeX/Mermaid、历史导入导出等能力，另外把 DSH「基础对话」预设里那套**浏览器内工具调用**合了进来，并做成了可以装到 Android 手机主屏、脱离电脑独立运行的 PWA。
+基于 DeepSeek 官方开源聊天客户端 [`deepseek-ai/chat-demo`](https://github.com/deepseek-ai/chat-demo)（MIT）修改而来：保留官方界面与联网搜索、深度思考、附件、语音、Markdown/KaTeX/Mermaid、历史导入导出等能力，另外把 DSH「基础对话」预设里那套工具调用合了进来，并做成两种装法：**Android APK**（推荐，工具最全）和 **PWA**（免安装，浏览器限制稍多）。
 
-- 线上地址：<https://324641aliyun.github.io/deepseek-chat-pwa/>
 - 源码：<https://github.com/324641aliyun/deepseek-chat-pwa>
 - 上游项目：<https://github.com/deepseek-ai/chat-demo>
-- 本版基于上游 0.1.3（2026-11-23T11:52+09:00 (Asia/Tokyo) 同步）
+- 网页版（PWA）：<https://324641aliyun.github.io/deepseek-chat-pwa/>
+- 本版基于上游 0.1.3（2026-11-23T16:05+09:00 (Asia/Tokyo) 同步）
 
 ## 装到手机（Android）
 
+### 方式一：APK（推荐）
+
+到 [Releases](https://github.com/324641aliyun/deepseek-chat-pwa/releases) 下载 `app-debug.apk`，在手机上打开安装（允许「安装未知来源应用」）。打开后先在设置里填 API Key。
+
+APK 里内置了网页资源和原生网络，所以：
+
+- `web_fetch` 直接可用，**不需要电脑**；
+- `read_bilibili_video` 可用，B 站视频逐帧阅读；
+- 不需要网络托管也能打开界面。
+
+### 方式二：PWA
+
 1. 用手机 Chrome 打开 <https://324641aliyun.github.io/deepseek-chat-pwa/>
 2. 右上角菜单 → **安装应用 / 添加到主屏幕**
-3. 打开后先点右上角设置，把 API Key 填进去（`sk-` 开头，来自 <https://platform.deepseek.com>）
-4. 之后从桌面图标进入即可；除模型请求外不需要电脑在线
+3. 设置里填 API Key（`sk-` 开头，来自 <https://platform.deepseek.com>）
 
-装好后会以独立窗口运行，有自己的图标；首次打开后即使断网也能加载界面外壳（缓存的是应用本身，聊天记录本来就在本机）。
+PWA 里 B 站逐帧用不了（浏览器跨域），`web_fetch` 需要电脑上的本地工具服务。
 
 ## 和官方 demo 的差别
 
 **人格与工具**（合并自 DSH「基础对话」预设，但提示词按官方 demo 的写法重写，只用一句话说明身份，再加一段工具使用说明）：
 
-| 能力 | 说明 |
-| --- | --- |
-| 多轮工具调用 | 模型可以连续多轮思考、调用工具、看结果再决定下一步；单轮最多 8 轮，不会只调一次 |
-| `calculate` | 受限算术求值（`+ - * / % ^`、括号、`pi`/`e`、12 个数学函数），不做代码执行 |
-| `search_conversation` | 在本会话全部历史里检索（关键词 / 正则 / 指定轮次 / 最近若干轮），**被压缩掉的旧轮次也能查到** |
-| `read_conversation` | 按轮次或单条消息读取原文 |
-| `read_uploaded_file` | 列出/读取用户在本会话上传的文本附件，上限 2 MiB，只认本会话的上传 |
-| `web_fetch` | **可选**：抓取网页正文，需要电脑上跑本地工具服务（见下） |
+| 能力 | 说明 | APK | PWA |
+| --- | --- | --- | --- |
+| 多轮工具调用 | 模型可以连续多轮思考、调用工具、看结果再决定下一步；单轮最多 8 轮，不会只调一次 | ✅ | ✅ |
+| `calculate` | 受限算术求值（`+ - * / % ^`、括号、`pi`/`e`、12 个数学函数），不做代码执行 | ✅ | ✅ |
+| `search_conversation` | 在本会话全部历史里检索（关键词 / 正则 / 指定轮次 / 最近若干轮），**被压缩掉的旧轮次也能查到** | ✅ | ✅ |
+| `read_conversation` | 按轮次或单条消息读取原文 | ✅ | ✅ |
+| `read_uploaded_file` | 列出/读取用户在本会话上传的文本附件，上限 2 MiB，只认本会话的上传 | ✅ | ✅ |
+| `web_fetch` | 抓取网页正文；APK 用原生网络直接抓，PWA 需要电脑上的本地工具服务 | ✅ | 需本地服务 |
+| `read_bilibili_video` | 读 B 站视频画面：BV 号、链接或 b23.tv 短链，每批最多 24 帧，画面会作为图片交给模型 | ✅ | ❌ |
+| 语音输入标注 | 用语音输入的消息会带上「语音输入」标记，请求里也会提示模型这是转写文本、可能有同音字或断句错误，让它按上下文纠正 | ✅ | ✅ |
+
+**B 站帧是怎么来的**：不解码视频，直接用播放器的「视频快照」雪碧图（`videoshot` 接口，10×10 网格、每格 480×270，按时间点采样），裁成帧后上传 Files API，作为图片块放进工具结果。代价是分辨率固定、采样间隔由 B 站决定（通常几秒一张）、只覆盖画面不含音轨与字幕。
 
 **上下文**：
 
@@ -35,24 +50,39 @@
 - 输入 `/compact` 立即压缩一次，并给出一条提示。
 - 原始消息一条都不删，压缩只影响「发给模型的上下文从哪里开始」，所以检索和界面展示仍是全文。
 
-**设置里新增三项**：工具调用开关（开启后固定使用深度思考——接口要求客户端工具只能在思考模式下用）、自动压缩开关、本地工具服务地址。
+**设置里新增三项**：工具调用开关（开启后固定使用深度思考——接口要求客户端工具只能在思考模式下用）、自动压缩开关、本地工具服务地址（APK 里自动隐藏）。
 
-## 可选：电脑上的本地工具服务
+## 可选：电脑上的本地工具服务（PWA 用）
 
-手机浏览器受跨域限制，读不了别的站点的正文；`web_fetch` 需要电脑上这个零依赖小服务：
+浏览器里读不了别的站点的正文，`web_fetch` 需要电脑上这个零依赖小服务：
 
 ```sh
 node helper/server.mjs            # 默认 8787 端口
 ```
 
-然后在手机 App 设置里把「本地工具服务」填成 `http://<电脑局域网 IP>:8787`，两台设备连同一个 Wi-Fi。Windows 首次运行会弹防火墙授权，允许专用网络即可。服务只做两件事：`GET /health` 健康检查、`GET /fetch?url=…` 抓正文；不保存任何内容。
+然后在设置里把「本地工具服务」填成 `http://<电脑局域网 IP>:8787`，两台设备连同一个 Wi-Fi。Windows 首次运行会弹防火墙授权，允许专用网络即可。服务只做两件事：`GET /health` 健康检查、`GET /fetch?url=…` 抓正文；不保存任何内容。
 
-电脑关机或不在同一网络时，这个工具会自动从工具列表里消失，其余功能照常——**手机单独可用是硬要求**，本地服务只是增强。
+电脑关机时这个工具会自动从工具列表里消失，其余功能照常。
 
-## 没有移植的部分
+## 打 APK
 
-- **B 站视频逐帧阅读**：DSH 预设里那个工具要解码 DASH 视频流，浏览器没有 FFmpeg，做不了；做在电脑端又违背「不开电脑也能用」。所以这版没有它。
+需要 JDK 21 + Android SDK（platform 36、build-tools 36、platform-tools）。本机已验证的流程：
+
+```sh
+pnpm build
+npx cap sync android
+cd android
+# local.properties 里写 sdk.dir=<SDK 路径>，或设置 ANDROID_HOME
+./gradlew assembleDebug
+# 产物：android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+`android/` 是 Capacitor 生成的原生壳；`capacitor.config.ts` 里 `webDir: dist`，所以每次都先 `pnpm build` 再 `cap sync`。
+
+## 未移植的部分
+
 - DSH 预设里的 `web_search`：官方 demo 自带服务端联网搜索（含边想边搜与来源引用），能力等价，不重复实现。
+- B 站帧不含音轨、字幕与评论，采样时间点由 B 站的快照接口决定，不能像解码那样任意取某一秒。
 
 ## 开发
 

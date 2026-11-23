@@ -166,11 +166,12 @@ export type ToolUseBlockParam = {
   input: Record<string, unknown>
 }
 
-/** 客户端工具结果块：紧跟在含 tool_use 的 assistant 之后，放在 user 消息内容里 */
+/** 客户端工具结果块：紧跟在含 tool_use 的 assistant 之后，放在 user 消息内容里。
+ * 内容可以是纯文本，也可以是「图片 + 文字」的块数组（B 站帧这类画面就走这条路）。 */
 export type ToolResultBlockParam = {
   type: 'tool_result'
   tool_use_id: string
-  content: string
+  content: string | (TextBlockParam | FileBlockParam)[]
   is_error?: boolean
 }
 
