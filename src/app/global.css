@@ -1,6 +1,17 @@
 :root {
   --message-list-max-width: 840px;
   --message-list-padding-horizontal: 44px;
+
+  /*
+   * 全面屏留白：Android 15+ / HyperOS 强制 edge-to-edge，iOS 主屏模式也会贴边。
+   * App 外壳（Capacitor SystemBars）会把状态栏、导航栏、挖孔高度写进 --safe-area-inset-*；
+   * 浏览器里则退回到 env()，普通设备两者都是 0，不影响原有布局。
+   */
+  --app-safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --app-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --app-safe-inline: calc(var(--app-safe-left) + var(--app-safe-right));
 }
 
 @media (max-width: 1023px) {

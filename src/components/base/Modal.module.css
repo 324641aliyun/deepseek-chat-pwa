@@ -6,6 +6,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 全面屏留白：弹窗与底部面板不压到状态栏和手势条上 */
+  padding: var(--app-safe-top) var(--app-safe-right) var(--app-safe-bottom) var(--app-safe-left);
   background-color: rgba(0, 0, 0, var(--overlay-opacity));
   backdrop-filter: blur(2px);
 

@@ -140,10 +140,12 @@ const bilibiliVideo = async (
   const target = asString(input, 'url')
   const startFrame = optionalNumber(input, 'frame') ?? 0
   const result = await readBilibiliFrames(target, startFrame, optionalNumber(input, 'count') ?? 12)
-  const times = result.frames.map((frame) => `${frame.index}→${frame.at}s`).join('、')
+  const times = result.frames.map((frame) => `#${frame.index}≈${frame.at}s`).join('、')
+  const range = `${result.frames[0].index}–${result.frames.at(-1)?.index}`
   const text = [
     `视频：${result.title}（${result.bvid}）`,
-    `共 ${result.totalFrames} 个采样点；本次返回第 ${result.frames[0]?.index}–${result.frames.at(-1)?.index} 帧，随消息附上 ${result.frames.length} 张画面。`,
+    result.duration ? `时长：${result.duration} 秒；共 ${result.totalFrames} 个采样点。` : `共 ${result.totalFrames} 个采样点。`,
+    `本次返回第 ${range} 帧，随消息附上 ${result.frames.length} 张画面。`,
     `帧号与时间点：${times}`,
     result.nextFrame === null
       ? '已经到视频末尾。'

@@ -2,6 +2,9 @@
   position: absolute;
   inset: 0;
   display: flex;
+  box-sizing: border-box;
+  /* 全面屏留白：状态栏、挖孔、手势条的高度由外壳注入，普通浏览器为 0 */
+  padding: var(--app-safe-top) var(--app-safe-right) var(--app-safe-bottom) var(--app-safe-left);
   overflow: hidden;
   background-color: var(--dsw-alias-bg-base);
 }

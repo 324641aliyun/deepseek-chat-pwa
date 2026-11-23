@@ -1,9 +1,14 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 /**
- * App 外壳配置：网页资源打进 APK，WebView 以 https://localhost 提供页面，
- * 所以 localStorage / IndexedDB / 流式请求都和浏览器里一致。
- * 原生网络（CapacitorHttp）让 B 站接口与网页抓取绕过跨域限制。
+ * App 外壳配置。
+ *
+ * - server.androidScheme: 页面跑在 https://localhost，localStorage / IndexedDB / 流式请求与浏览器一致。
+ * - CapacitorHttp.enabled: 让 WebView 的请求走原生网络（没有跨域限制），B 站接口与网页抓取都依赖它；
+ *   不开这个开关时，跨域请求会被 WebView 按 CORS 拦掉。
+ * - SystemBars.insetsHandling: Android 15+ / HyperOS 强制全面屏（edge-to-edge）。
+ *   css 模式会把状态栏、导航栏、挖孔的高度写进 --safe-area-inset-* 自定义属性，
+ *   由页面自己留白；initialViewportFitValueHint 避免首帧跳动。
  */
 const config: CapacitorConfig = {
   appId: 'com.aliyun.deepseekchat',
@@ -13,8 +18,19 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
   },
   android: {
-    // 只加载本地打包资源，不连开发服务器
     allowMixedContent: false,
+    backgroundColor: '#ffffff',
+    // 输入框聚焦时不要缩放页面
+    zoomEnabled: false,
+  },
+  plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
+    SystemBars: {
+      insetsHandling: 'css',
+      initialViewportFitValueHint: 'cover',
+    },
   },
 }
 

@@ -59,6 +59,9 @@
     position: fixed;
     inset: 0;
     z-index: 700;
+    box-sizing: border-box;
+    /* 全面屏留白：面板标题不被状态栏遮住，列表底部不压手势条 */
+    padding: var(--app-safe-top) var(--app-safe-right) var(--app-safe-bottom) var(--app-safe-left);
     width: auto;
     max-width: none;
     border-left: none;

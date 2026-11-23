@@ -7,6 +7,7 @@
 // 命令行脚本需要输出生成进度
 /* eslint-disable no-console */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { deflateSync } from 'node:zlib'
@@ -117,10 +118,16 @@ const BUBBLE_TAIL = [
   [0.52, 0.72],
 ]
 
-/** 图标底：rounded 为圆角方块（透明四角），full 为满幅不透明方块 */
+/** 图标底：rounded 为圆角方块（透明四角），full 为满幅不透明方块，circle 为圆形，none 为全透明 */
 const makeBackground = (kind) => {
   if (kind === 'full') {
     return () => true
+  }
+  if (kind === 'none') {
+    return () => false
+  }
+  if (kind === 'circle') {
+    return (u, v) => Math.hypot(u - 0.5, v - 0.5) <= 0.5
   }
   const radius = 0.22
   return (u, v) => inRoundedRect(u, v, { x0: 0, y0: 0, x1: 1, y1: 1, r: radius })
@@ -165,20 +172,22 @@ const renderIcon = (size, { background, bubbleScale }) => {
         const v = (y + (sy + 0.5) / SAMPLES) / size
         for (let sx = 0; sx < SAMPLES; sx += 1) {
           const u = (x + (sx + 0.5) / SAMPLES) / size
-          if (!backgroundTest(u, v)) {
-            continue
-          }
-          covered += 1
+          // 气泡画在底色之上；没有底色（Android 自适应图标前景）时只保留气泡
           if (inBubble(u, v)) {
+            covered += 1
             red += WHITE[0]
             green += WHITE[1]
             blue += WHITE[2]
             maxContentRadius = Math.max(maxContentRadius, Math.hypot(u - 0.5, v - 0.5))
-          } else {
-            red += BRAND[0]
-            green += BRAND[1]
-            blue += BRAND[2]
+            continue
           }
+          if (!backgroundTest(u, v)) {
+            continue
+          }
+          covered += 1
+          red += BRAND[0]
+          green += BRAND[1]
+          blue += BRAND[2]
         }
       }
       const offset = (y * size + x) * 4
@@ -249,3 +258,43 @@ for (const target of targets) {
 }
 
 console.log(`图标已输出到 ${iconsDir}`)
+
+// ---------- Android 启动图标 ----------
+// 桌面图标在 HyperOS 等系统上会被裁成圆形/方形/水滴形，所以要同时给：
+// 传统方形图标（ic_launcher）、圆形图标（ic_launcher_round），
+// 以及自适应图标的前景层（ic_launcher_foreground，108dp，内容留出安全区）。
+
+const androidRes = join(root, 'android', 'app', 'src', 'main', 'res')
+const androidTargets = [
+  { dir: 'mipmap-mdpi', scale: 1 },
+  { dir: 'mipmap-hdpi', scale: 1.5 },
+  { dir: 'mipmap-xhdpi', scale: 2 },
+  { dir: 'mipmap-xxhdpi', scale: 3 },
+  { dir: 'mipmap-xxxhdpi', scale: 4 },
+]
+
+if (existsSync(androidRes)) {
+  for (const { dir, scale } of androidTargets) {
+    const target = join(androidRes, dir)
+    mkdirSync(target, { recursive: true })
+    // 传统图标：48dp
+    const legacySize = Math.round(48 * scale)
+    writeFileSync(
+      join(target, 'ic_launcher.png'),
+      renderIcon(legacySize, { background: 'rounded', bubbleScale: 0.6 }).png
+    )
+    // 圆形图标：同尺寸，圆形底
+    writeFileSync(
+      join(target, 'ic_launcher_round.png'),
+      renderIcon(legacySize, { background: 'circle', bubbleScale: 0.6 }).png
+    )
+    // 自适应图标前景：108dp，只有气泡；内容控制在中心 2/3 内，避免被任意形状裁掉
+    const foregroundSize = Math.round(108 * scale)
+    writeFileSync(
+      join(target, 'ic_launcher_foreground.png'),
+      renderIcon(foregroundSize, { background: 'none', bubbleScale: 0.52 }).png
+    )
+  }
+  console.log(`Android 图标已输出到 ${androidRes}`)
+}
+

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core'
 import { useSettings, type ThemePreference } from '../services/settings.js'
 
 export type Theme = 'light' | 'dark'
@@ -28,6 +29,22 @@ const syncPageBackground = () => {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', backgroundColor)
 }
 
+/**
+ * 状态栏 / 手势条的图标颜色跟着应用内的主题走。
+ * 应用可以手动选浅色或深色，系统深浅色不一定一致；不主动同步时，
+ * 深色主题配深色图标会看不清（HyperOS 上尤其明显）。
+ */
+const syncSystemBars = (theme: Theme) => {
+  if (!Capacitor.isNativePlatform()) {
+    return
+  }
+  void SystemBars.setStyle({
+    style: theme === 'dark' ? SystemBarsStyle.Dark : SystemBarsStyle.Light,
+  }).catch(() => {
+    // 外壳不支持时忽略：WebView 仍按页面内容显示
+  })
+}
+
 /** 同步页面主题、根画布背景和支持 theme-color 的浏览器栏。 */
 const applyTheme = (theme: Theme) => {
   const body = document.body
@@ -41,6 +58,7 @@ const applyTheme = (theme: Theme) => {
     body.removeAttribute('data-ds-dark-theme')
   }
   document.documentElement.style.colorScheme = theme
+  syncSystemBars(theme)
   // 首次背景色同步在样式表加载完成后执行，适配 WebKit 的 defer 脚本执行顺序。
   if (document.readyState === 'complete') {
     syncPageBackground()

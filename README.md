@@ -7,11 +7,25 @@
 - 网页版（PWA）：<https://324641aliyun.github.io/deepseek-chat-pwa/>
 - 本版基于上游 0.1.3（2026-11-23T16:05+09:00 (Asia/Tokyo) 同步）
 
+
+## 1.1.0 修复（2026-11-23T18:20+09:00 (Asia/Tokyo)）
+
+- **全面屏留白**：Android 15+ / HyperOS 强制 edge-to-edge，状态栏与手势条会盖住页面。现在由外壳（Capacitor SystemBars）注入 `--safe-area-inset-*`，页面在 `.frame`、弹窗遮罩、搜索面板与 toast 上统一让开；`viewport-fit=cover` 保持不变。`tools/check-safe-area.mjs` 会注入 48/34 的留白并断言内边距真的生效。
+- **B 站逐帧**：之前不可用的根因是 `CapacitorHttp` 插件没打开，WebView 的跨域请求被 CORS 拦掉。现在 `capacitor.config.ts` 显式 `plugins.CapacitorHttp.enabled = true`；同时加入风控（412/-412/-352）时的 buvid 重试、`OffscreenCanvas` 不可用时的 canvas 回退、多分 P 与短链解析、以及时间点换算（接口 `index` 实测是秒）。
+- **网页抓取**：`web_fetch` 改走原生网络，不再需要电脑上的本地服务（PWA 里仍可配本地服务）。
+- **语音输入标记**：见上表。
+- **release 构建**：R8 + 资源裁剪 + 自签名 release 证书，包体 6.1 MB → 2.66 MB，非 debuggable；桌面图标换成品牌图标（自适应图标 + 各密度兜底），启动窗口白底避免闪黑；`windowSoftInputMode=adjustResize` 让输入框不被键盘挡住。
+
+### Android 构建注意事项（本机验证过的坑）
+
+- `sdkmanager` 拉不到仓库清单，SDK 组件需按官方 XML 直接下载解压；缺 `package.xml` 时 `avdmanager` 会认为包未安装。
+- Gradle 需要 **build-tools 35.0.0** 才能跑 R8；`lintVitalRelease` 对 Capacitor 桥接 Activity 误报 `Instantiatable`，已在 `build.gradle` 关闭发布期 lint。
+- 在本机以 SYSTEM 身份并行跑 Gradle 时，`mergeJavaResource` 会偶发 `AccessDeniedException`（临时目录创建竞态）；加 `-Dorg.gradle.workers.max=1` 后稳定。
 ## 装到手机（Android）
 
 ### 方式一：APK（推荐）
 
-到 [Releases](https://github.com/324641aliyun/deepseek-chat-pwa/releases) 下载 `app-debug.apk`，在手机上打开安装（允许「安装未知来源应用」）。打开后先在设置里填 API Key。
+到 [Releases](https://github.com/324641aliyun/deepseek-chat-pwa/releases) 下载 `deepseek-chat-1.1.0.apk`（约 2.7 MB），在手机上打开安装（允许「安装未知来源应用」）。打开后先在设置里填 API Key。
 
 APK 里内置了网页资源和原生网络，所以：
 
@@ -69,12 +83,10 @@ node helper/server.mjs            # 默认 8787 端口
 需要 JDK 21 + Android SDK（platform 36、build-tools 36、platform-tools）。本机已验证的流程：
 
 ```sh
-pnpm build
-npx cap sync android
-cd android
+pnpm build\nnpx cap sync android\ncd android
 # local.properties 里写 sdk.dir=<SDK 路径>，或设置 ANDROID_HOME
 ./gradlew assembleDebug
-# 产物：android/app/build/outputs/apk/debug/app-debug.apk
+# 产物：android/app/build/outputs/apk/release/app-release.apk
 ```
 
 `android/` 是 Capacitor 生成的原生壳；`capacitor.config.ts` 里 `webDir: dist`，所以每次都先 `pnpm build` 再 `cap sync`。
@@ -121,3 +133,5 @@ $env:E2E_URL='https://324641aliyun.github.io/deepseek-chat-pwa/'; node tools/e2e
 ## 许可
 
 MIT，沿用上游 [`deepseek-ai/chat-demo`](https://github.com/deepseek-ai/chat-demo) 的许可与版权声明，见 [LICENSE](LICENSE)。
+
+
