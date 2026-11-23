@@ -133,27 +133,52 @@ const now = 1_700_000_000_000
   }
   const question = { id: 'u2', role: 'user', content: '那 6*7 呢', files: [], createdAt: now + 1 }
   const messages = toRequestMessages([userTurn, assistantTurn], question)
+  // 一条本地回复按工具边界拆成 assistant(tool_use) → user(tool_result) → assistant(正文)
   assert.deepEqual(
     messages.map((message) => message.role),
+    ['user', 'assistant', 'user', 'assistant', 'user']
+  )
+  assert.deepEqual(
+    messages[1].content.map((block) => block.type),
+    ['text', 'tool_use']
+  )
+  assert.equal(messages[1].content.at(-1).id, 'call_1')
+  assert.deepEqual(
+    messages[2].content.map((block) => block.type),
+    ['tool_result']
+  )
+  assert.equal(messages[2].content[0].tool_use_id, 'call_1')
+  assert.deepEqual(
+    messages[3].content.map((block) => block.type),
+    ['text']
+  )
+  assert.equal(messages[3].content[0].text, '结果是 6。')
+  const last = messages[4]
+  assert.equal(typeof last.content, 'string')
+  assert.equal(last.content, '那 6*7 呢')
+
+  // 回复停在工具调用上时，结果并入下一条用户消息，不产生连续 user
+  const stopAtTool = {
+    ...assistantTurn,
+    blocks: [
+      { type: 'text', text: '我查一下。' },
+      { type: 'client_tool', id: 'call_9', name: 'calculate', input: { expression: '1+1' }, status: 'done', result: '2' },
+    ],
+  }
+  const merged = toRequestMessages([userTurn, stopAtTool], question)
+  assert.deepEqual(
+    merged.map((message) => message.role),
     ['user', 'assistant', 'user']
   )
-  const assistant = messages[1]
   assert.deepEqual(
-    assistant.content.map((block) => block.type),
-    ['text', 'tool_use', 'text']
-  )
-  const last = messages[2]
-  assert.equal(typeof last.content, 'object')
-  assert.deepEqual(
-    last.content.map((block) => block.type),
+    merged[2].content.map((block) => block.type),
     ['tool_result', 'text']
   )
-  assert.equal(last.content[0].tool_use_id, 'call_1')
-  assert.equal(last.content[1].text, '那 6*7 呢')
+  assert.equal(merged[2].content[1].text, '那 6*7 呢')
 
-  // 同一轮续传用的 assistant 内容：只要文本与调用，不含思考
+  // 同一轮续传用的 assistant 内容：正文在前，tool_use 必须排在最后
   const roundAssistant = toToolAssistantParam(assistantTurn.blocks)
-  assert.deepEqual(roundAssistant.content.map((block) => block.type), ['text', 'tool_use', 'text'])
+  assert.deepEqual(roundAssistant.content.map((block) => block.type), ['text', 'text', 'tool_use'])
   console.log('ok 请求层 工具往返重建 + 角色交替')
 }
 

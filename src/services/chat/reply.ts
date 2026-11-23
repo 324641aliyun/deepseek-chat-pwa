@@ -230,18 +230,77 @@ export const getPendingToolCalls = (blocks: ReplyBlock[]): ClientToolPart[] =>
 /** 把客户端工具块换成请求里的 assistant 内容块，供同一轮的工具续传使用 */
 export const toToolAssistantParam = (
   blocks: ReplyBlock[]
-): Extract<MessageParam, { role: 'assistant' }> => ({
-  role: 'assistant',
-  content: blocks.flatMap((block): AssistantBlockParam[] => {
-    if (block.type === 'text') {
-      return block.text ? [{ type: 'text', text: block.text }] : []
-    }
+): Extract<MessageParam, { role: 'assistant' }> => {
+  // 接口要求 tool_use 后面紧跟 tool_result，所以工具调用必须排在正文之后。
+  const content: AssistantBlockParam[] = blocks.flatMap((block): AssistantBlockParam[] =>
+    block.type === 'text' && block.text ? [{ type: 'text', text: block.text }] : []
+  )
+  for (const block of blocks) {
     if (block.type === 'client_tool') {
-      return [{ type: 'tool_use', id: block.id, name: block.name, input: block.input }]
+      content.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input })
     }
-    return []
-  }),
-})
+  }
+  return { role: 'assistant', content }
+}
+
+/**
+ * 把一条本地回复按客户端工具的边界展开成多条协议消息：
+ * assistant(tool_use) → user(tool_result) → … → assistant(正文)。
+ * 本地回复把一整轮的多轮调用合并成一条消息，接口则要求每个 tool_use 后面紧跟 tool_result，
+ * 所以回放历史时必须拆开。
+ */
+export const expandReplyMessages = (reply: AssistantMessage): MessageParam[] => {
+  const out: MessageParam[] = []
+  let segment: ReplyBlock[] = []
+  let calls: ClientToolPart[] = []
+  const flushCalls = () => {
+    if (calls.length === 0) {
+      return
+    }
+    const assistant = toAssistantParam({ blocks: segment } as AssistantMessage)
+    out.push({
+      role: 'assistant',
+      content: [
+        ...assistant.content,
+        ...calls.map((call) => ({
+          type: 'tool_use' as const,
+          id: call.id,
+          name: call.name,
+          input: call.input,
+        })),
+      ],
+    })
+    out.push({
+      role: 'user',
+      content: calls.map((call) => ({
+        type: 'tool_result' as const,
+        tool_use_id: call.id,
+        content: call.result ?? '',
+        ...(call.isError ? { is_error: true } : {}),
+      })),
+    })
+    segment = []
+    calls = []
+  }
+  for (const block of reply.blocks) {
+    if (block.type === 'client_tool' && block.status !== 'running') {
+      calls.push(block)
+      continue
+    }
+    if (calls.length > 0) {
+      flushCalls()
+    }
+    segment.push(block)
+  }
+  flushCalls()
+  if (segment.length > 0) {
+    const assistant = toAssistantParam({ blocks: segment } as AssistantMessage)
+    if (assistant.content.length > 0) {
+      out.push(assistant)
+    }
+  }
+  return out
+}
 
 /**
  * 只有正常达到输出上限或被停止的回复可续写，报错回复不能续写。
@@ -428,8 +487,19 @@ export const toRequestMessages = (
     }
     appendReminder(reply.latestReminder)
     pushUser(toUserParam(user))
-    messages.push(toAssistantParam(reply))
-    pendingToolResults = getToolResults(reply)
+    messages.push(...expandReplyMessages(reply))
+    // 回复停在工具调用上时（没有再输出正文），把结果留到下一轮用户消息里合并，
+    // 避免出现连续两条 user 消息。
+    const trailing = messages.at(-1)
+    if (
+      trailing?.role === 'user' &&
+      Array.isArray(trailing.content) &&
+      trailing.content.length > 0 &&
+      trailing.content.every((block) => block.type === 'tool_result')
+    ) {
+      pendingToolResults = trailing.content as ToolResultBlockParam[]
+      messages.pop()
+    }
   }
   appendReminder(latestReminder)
   pushUser(toUserParam(question))

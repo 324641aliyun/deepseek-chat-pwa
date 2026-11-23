@@ -1,5 +1,7 @@
-// 浏览器端到端验证：用真实 Chrome 打开构建产物，走一遍「输入问题 → 多轮工具调用 → 回答」。
-// 用法：node tools/e2e.mjs [--keep]
+// 浏览器端到端验证：用真实 Chrome 打开构建产物，走两轮对话，确认多轮工具调用与跨轮历史回放。
+// 用法：
+//   node tools/e2e.mjs                        # 打本地 dist
+//   $env:E2E_URL='https://.../'; node tools/e2e.mjs   # 打已部署站点
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { readFile, mkdtemp, rm } from 'node:fs/promises'
@@ -72,18 +74,22 @@ class Cdp {
         const { resolve, reject } = this.pending.get(data.id)
         this.pending.delete(data.id)
         if (data.error) {
-          reject(new Error(`${data.error.message} (${JSON.stringify(data.error.data ?? '')})`))
+          reject(new Error(`${data.error.message} ${JSON.stringify(data.error.data ?? '')}`))
         } else {
           resolve(data.result)
         }
         return
       }
       if (data.method === 'Runtime.consoleAPICalled') {
-        const text = (data.params.args ?? []).map((arg) => arg.value ?? arg.description ?? arg.type).join(' ')
+        const text = (data.params.args ?? [])
+          .map((arg) => arg.value ?? arg.description ?? arg.type)
+          .join(' ')
         this.logs.push(`[console.${data.params.type}] ${text}`)
       }
       if (data.method === 'Runtime.exceptionThrown') {
-        this.logs.push(`[exception] ${data.params.exceptionDetails?.text} ${data.params.exceptionDetails?.exception?.description ?? ''}`)
+        this.logs.push(
+          `[exception] ${data.params.exceptionDetails?.text} ${data.params.exceptionDetails?.exception?.description ?? ''}`
+        )
       }
       if (data.method === 'Log.entryAdded') {
         this.logs.push(`[log.${data.params.entry.level}] ${data.params.entry.text}`)
@@ -97,10 +103,10 @@ class Cdp {
     return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }))
   }
 
-  async evaluate(expression, { awaitPromise = true } = {}) {
+  async evaluate(expression) {
     const result = await this.send('Runtime.evaluate', {
       expression,
-      awaitPromise,
+      awaitPromise: true,
       returnByValue: true,
       userGesture: true,
     })
@@ -122,7 +128,8 @@ const readApiKey = async () => {
   return yaml.match(/^\s*DEEPSEEK_API_KEY:\s*(sk-[A-Za-z0-9]+)/m)?.[1]
 }
 
-const server = await serve()
+const server = process.env.E2E_URL ? null : await serve()
+const targetUrl = process.env.E2E_URL ?? `http://127.0.0.1:${PORT}/`
 const profileDir = await mkdtemp(join(tmpdir(), 'dsh-e2e-chrome-'))
 const chrome = spawn(
   chromePath,
@@ -134,14 +141,13 @@ const chrome = spawn(
     '--no-default-browser-check',
     '--disable-gpu',
     '--window-size=430,900',
-    `http://127.0.0.1:${PORT}/`,
+    targetUrl,
   ],
   { stdio: 'ignore', detached: false }
 )
 
 let cdp
 try {
-  // 等 DevTools 端口就绪
   let target
   for (let attempt = 0; attempt < 40; attempt++) {
     try {
@@ -149,7 +155,7 @@ try {
       target = list.find((item) => item.type === 'page' && item.webSocketDebuggerUrl)
       if (target) break
     } catch {
-      // 端口还没起来
+      // 端口还没就绪
     }
     await wait(250)
   }
@@ -162,78 +168,91 @@ try {
   await cdp.send('Runtime.enable')
   await cdp.send('Log.enable')
   await cdp.send('Page.enable')
+  await cdp.send('Page.navigate', { url: targetUrl })
+  await wait(3000)
 
   const apiKey = await readApiKey()
   if (!apiKey) {
     throw new Error('没找到 DEEPSEEK_API_KEY')
   }
-
-  // 写入 API Key 后重载，避免首次渲染时空 key
   await cdp.evaluate(`localStorage.setItem('chat-demo:api-key', ${JSON.stringify(apiKey)})`)
   await cdp.evaluate('location.reload()')
   await wait(2500)
 
-  const ready = await cdp.evaluate(`!!document.querySelector('textarea')`)
-  if (!ready) {
+  if (!(await cdp.evaluate(`!!document.querySelector('textarea')`))) {
     throw new Error('页面没有渲染出输入框')
   }
 
-  const question = '先用 calculate 工具算 1234 * 5678，再用 calculate 工具算上一步结果除以 7 的余数。只回答最终余数。'
-  await cdp.evaluate(`(() => {
-    const textarea = document.querySelector('textarea')
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
-    setter.call(textarea, ${JSON.stringify(question)})
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-    textarea.focus()
-    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    return textarea.value
-  })()`)
-
-  const deadline = Date.now() + 120_000
-  let snapshot = { text: '', tools: 0, done: false }
-  while (Date.now() < deadline) {
-    snapshot = await cdp.evaluate(`(() => {
-      const body = document.body.innerText
-      const tools = document.querySelectorAll('[class*="toolToggle"]').length
-      const stop = !!document.querySelector('[class*="stop"]')
-      return { text: body, tools, done: !stop }
+  const ask = async (text) => {
+    await cdp.evaluate(`(() => {
+      const textarea = document.querySelector('textarea')
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+      setter.call(textarea, ${JSON.stringify(text)})
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      textarea.focus()
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     })()`)
-    const hasAnswer = /余数|42668365|2\b/.test(snapshot.text) && snapshot.tools > 0
-    if (hasAnswer && snapshot.text.length > 80) {
-      // 再等两秒，让最后一轮文本落定
-      await wait(2500)
-      snapshot = await cdp.evaluate(`(() => ({
-        text: document.body.innerText,
-        tools: document.querySelectorAll('[class*="toolToggle"]').length,
-        done: true,
-      }))()`)
-      break
-    }
-    await wait(1000)
   }
 
-  const normalized = snapshot.text.replace(/\s+/g, ' ').slice(0, 1200)
-  console.log('工具卡片数量：', snapshot.tools)
-  console.log('页面文本片段：', normalized)
+  const state = () =>
+    cdp.evaluate(`(() => ({
+      text: document.body.innerText,
+      tools: document.querySelectorAll('[class*="toolToggle"]').length,
+    }))()`)
+
+  const waitSettled = async (minTools, pattern, timeout = 150_000) => {
+    const deadline = Date.now() + timeout
+    let previous = ''
+    let stable = 0
+    let snapshot = await state()
+    while (Date.now() < deadline) {
+      await wait(1000)
+      snapshot = await state()
+      const hit = snapshot.tools >= minTools && pattern.test(snapshot.text)
+      if (hit && snapshot.text === previous) {
+        stable += 1
+        if (stable >= 2) {
+          return snapshot
+        }
+      } else {
+        stable = 0
+      }
+      previous = snapshot.text
+    }
+    return snapshot
+  }
+
+  // 第一轮：两次数值计算，验证同一轮里连续多轮工具调用
+  await ask('先用 calculate 工具算 1234 * 5678，再用 calculate 工具算上一步结果除以 7 的余数。只回答最终余数。')
+  const first = await waitSettled(2, /已执行 calculate/)
+  console.log('第一轮工具卡片：', first.tools)
+  console.log('第一轮片段：', first.text.replace(/\s+/g, ' ').slice(0, 600))
+
+  // 第二轮：让它回头读第 1 轮，验证历史里的工具往返能重建成合法请求
+  await ask('用 read_conversation 读一下第 1 轮，然后原样复述我当时问的那句话。')
+  const second = await waitSettled(3, /1234\s*\*\s*5678/)
+  console.log('第二轮工具卡片：', second.tools)
+  console.log('第二轮片段：', second.text.replace(/\s+/g, ' ').slice(0, 900))
+
   if (cdp.logs.length > 0) {
     console.log('\n浏览器日志：')
-    for (const line of cdp.logs.slice(0, 30)) {
+    for (const line of cdp.logs.slice(0, 20)) {
       console.log(' ', line)
     }
   }
 
-  const passed = snapshot.tools >= 2 && /42668365|\b\d+\b/.test(snapshot.text)
-  console.log(passed ? '\n端到端通过：多轮工具调用完成' : '\n端到端未通过：检查上面的页面文本与日志')
+  const passed = first.tools >= 2 && second.tools >= 3 && /1234\s*\*\s*5678/.test(second.text)
+  console.log(passed ? '\n端到端通过：同一轮多工具 + 跨轮历史回放' : '\n端到端未通过')
   process.exitCode = passed ? 0 : 1
 } catch (error) {
   console.error('端到端失败：', error instanceof Error ? error.message : error)
   if (cdp?.logs?.length) {
-    console.log(cdp.logs.slice(0, 30).join('\n'))
+    console.log(cdp.logs.slice(0, 20).join('\n'))
   }
   process.exitCode = 1
 } finally {
   cdp?.close()
-  server.close()
+  server?.close()
   if (!process.argv.includes('--keep')) {
     chrome.kill()
     await wait(500)
